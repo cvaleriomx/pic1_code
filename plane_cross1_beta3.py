@@ -11,6 +11,7 @@ class PlaneCrossSaverFiltered:
                  include_dir=True,
                  require_pid=True,
                  save_header=True,
+                 start_step=0, end_step=None,
                  debug=False, dz_probe=None):
         self.sp = species
         self.z0 = float(z0)
@@ -29,12 +30,17 @@ class PlaneCrossSaverFiltered:
         self.active_pids = set()
         self.initialized = False
         self._step_count = 0
+        self.start_step = start_step
+        self.end_step = end_step
+        
 
         if save_header:
             cols = ["t_cross","x","y","z","vx","vy","vz","pid"]
             if include_dir: cols.append("dir")
             with open(self.filename, "w") as f:
                 f.write(",".join(cols) + "\n")
+     
+
 
     # ---------- helpers ----------
     def _get_arrays_now(self):
@@ -86,6 +92,14 @@ class PlaneCrossSaverFiltered:
     # ---------- hook para afterstep ----------
     def step_monitor(self):
         self._step_count += 1
+        # --- filtro por rango de steps ---
+        if self._step_count < self.start_step:
+            return
+        if (self.end_step is not None) and (self._step_count > self.end_step):
+            return
+
+
+
         x,y,z,vx,vy,vz,pid = self._get_arrays_now()
         n = z.size
         print(f"[PlaneCross] step {self._step_count}: Npart={n}", flush=True)
