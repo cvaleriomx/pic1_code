@@ -74,9 +74,11 @@ wp.derivqty()
 # Particle distribution 
 XX = np.random.normal(mu, sigma, NParticles)
 YY = np.random.normal(mu, sigma, NParticles)
-ZZ = -0.015 + np.random.uniform(-0.015, 0.015, NParticles)
+ZZ = -0.015 + np.random.uniform(-0.015, 0.0149, NParticles)
 VXX = np.zeros(NParticles)
 VYY = np.zeros(NParticles)
+VXX =np.random.uniform(-velocity*0.1, velocity*0.1, NParticles)
+VYY =np.random.uniform(-velocity*0.1, velocity*0.1, NParticles)
 sigmavz = 0.001
 VX = np.random.normal(0, sigmavz, NParticles)
 VZ = np.random.normal(velocity, sigmavz, NParticles)
@@ -195,7 +197,7 @@ nsteps = int(np.ceil(nsteps))
 leng_part=[]
 
 # define los dos planos
-z_planes = [0.00, 3.0]
+z_planes = [-0.001, 3.0]
 files    = ["cross_z0p001.csv", "cross_z0p300.csv"]
 limits=[8e-3, 10e-3]
 monitors = []
