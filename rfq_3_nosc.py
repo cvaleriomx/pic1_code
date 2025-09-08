@@ -13,23 +13,39 @@ import warp as wp
 wp.top.nesmult = 1  # <--- IMPORTANTE para inicializar 'emltes'
 from plane_cross1_beta3 import PlaneCrossSaverFiltered   # importar tu clase
 
-def drift(x,xp,y,yp,z):
-    x1=x+z*xp
-    y1=y+z*yp
-    return x1,y1
-
 # Set up solenoid lattice
 run_length = 3.01
 drift_length = 0.2
 solenoid_length = 1
 solenoid_radius = 7.5e-2
-NParticles = 100000
+NParticles = 300
 var1 = params
 mag_solenoid = 0.0001
 0.1 * float(var1) / 10
 v0 = float(var1)
 wp.top.lprntpara = False
 wp.top.lpsplots = False
+
+
+
+def gauss_trunc(mu, sigma, NParticles,velocity,z0=0.0):
+    XX = np.random.normal(mu, sigma, NParticles)
+    YY = np.random.normal(mu, sigma, NParticles)
+    #ZZ = -0.015 + np.random.uniform(-beam_lenght/2, beam_lenght/2, NParticles)
+    #dzcal=run_length/wp.w3d.nz 
+
+    ZZ = np.random.uniform(z0, -0.001, NParticles)
+
+    #ZZ=np.zeros(NParticles)
+    VXX = np.zeros(NParticles)
+    VYY = np.zeros(NParticles)
+    sigmavz = 0.001
+    VX = np.random.normal(0, sigmavz, NParticles)
+    VZ = np.random.normal(velocity, sigmavz, NParticles)
+    return XX, YY, ZZ, VXX, VYY, VZ
+
+
+
 
 # Initial BEAM variables
 e_kin = 45.0 * wp.keV
@@ -75,28 +91,16 @@ for beam in beam_species:
 
 wp.top.npmax = NParticles
 wp.derivqty()
-degrees_to_time = lambda deg, f_rf: deg / (360.0 * f_rf)
-degrees_to_z = lambda deg, f_rf, v: degrees_to_time(deg, f_rf) * v
-print(degrees_to_time(360, 352e6), "s en 1 ciclo a 352 MHz")
-print(degrees_to_z(360, 352e6,2936039.794467285), "m en 1 ciclo a 352 MHz y v=0.0735c")
-z0lenght=degrees_to_z(360, 352e6,2936039.794467285)*4
 
-# Particle distribution 
-XX = np.random.normal(mu, sigma, NParticles)
-YY = np.random.normal(mu, sigma, NParticles)
-ZZ = np.random.uniform(-z0lenght-0.001,-0.001, NParticles)
+
+XX, YY, ZZ, VXX, VYY, VZ = gauss_trunc(mu, sigma, NParticles,velocity,z0=-0.002)
+
 #ZZ = -0.015 + np.random.uniform(-0.015, 0.0149, NParticles)
-VXX = np.zeros(NParticles)
-VYY = np.zeros(NParticles)
-VXX =np.random.uniform(-velocity*0.1, velocity*0.1, NParticles)
-VYY =np.random.uniform(-velocity*0.1, velocity*0.1, NParticles)
+#VXX = np.zeros(NParticles)
+#VYY = np.zeros(NParticles)
 sigmavz = 0.001
-#VX = np.random.normal(0, sigmavz, NParticles)
+VX = np.random.normal(0, sigmavz, NParticles)
 VZ = np.random.normal(velocity, sigmavz, NParticles)
-XX,YY=drift(XX,VXX/VZ,YY,VYY/VZ,ZZ)
-print("velocity ", velocity)
-fig = plt.figure(figsize=(10, 6))
-plt.scatter(ZZ, VYY/VZ, s=1, label='Initial Particle Distribution')
 
 # Conducting pipe. IT WOULD BE NICE TO HAVE THE RFQ VANES 
 rfq_max_radius = 0.01
@@ -128,7 +132,7 @@ wp.w3d.xmmin = -max_radius
 wp.w3d.xmmax = max_radius
 wp.w3d.ymmin = -max_radius
 wp.w3d.ymmax = max_radius
-wp.w3d.zmmin = -z0lenght-0.002
+wp.w3d.zmmin = -0.002
 wp.w3d.zmmax = run_length + 0.03
 wp.w3d.bound0 = wp.neumann
 wp.w3d.boundnz = wp.neumann
@@ -138,14 +142,16 @@ wp.top.pboundnz = wp.absorb
 wp.top.pboundxy = wp.absorb
 wp.top.fstype = 7
 wp.w3d.l4symtry = False
+wp.top.inject = 1
 
 
 wp.package("w3d")
 wp.generate()
 
 print(len(protons.getx()), "particulas")
-
 wp.addparticles(x=XX, y=YY, z=ZZ, vx=VXX, vy=VYY, vz=VZ, js=0, lallindomain=True)
+
+#wp.addparticles(x=XX, y=YY, z=ZZ, vx=VXX, vy=VYY, vz=VZ, js=0, lallindomain=True)
 fig = plt.figure(figsize=(10, 6))
 plt.scatter(ZZ, YY, s=1, label='Initial Particle Distribution')
 plt.show()
@@ -206,18 +212,18 @@ wp.addnewegrd(
 wp.installconductors(conductors, dfill=wp.largepos)
 scraper = wp.ParticleScraper(conductors)
 wp.fieldsolve()
+#wp.solver.ldosolve = False
 
 nsteps =  (run_length / velocity )/ wp.top.dt
 nsteps = int(np.ceil(nsteps))
 leng_part=[]
 
 # define los dos planos
-z_planes = [-0.0005, 3.01]
-max_track=[500,None]
+z_planes = [-0.0005, 3.0]
 files    = ["cross_z0p001.csv", "cross_z0p300.csv"]
-limits=[10e-3, 10e-3]
+limits=[8e-3, 10e-3]
 monitors = []
-for z0, fname,tlim,maxt in zip(z_planes, files,limits,max_track):
+for z0, fname,tlim in zip(z_planes, files,limits):
     mon = PlaneCrossSaverFiltered(
         species=protons,
         z0=z0,
@@ -227,17 +233,13 @@ for z0, fname,tlim,maxt in zip(z_planes, files,limits,max_track):
         z_side=None,           # o "below"/"above" según necesites
         reseed_each_step=True,
         include_dir=True,
-        debug=False,end_step=maxt           # pon False para producción
+        debug=False           # pon False para producción
     )
     monitors.append(mon)
     wp.installafterstep(mon.step_monitor)   # registra cada uno
-direcs=np.ones(NParticles)
-filename_initial_dist = base1 + "initial_distribution.png"
-combined_array = np.vstack((protons.getx(),protons.getx(), protons.gety(), protons.getz(), protons.getvx(), protons.getvy(), protons.getvz(),protons.getpid(),direcs)).T
-np.savetxt(base1 + 'initial_distribution.csv', combined_array, delimiter=',', header='t_cross,x,y,z,vx,vy,vz,pid,dir', comments='')
 
 for i in range(nsteps):
-    if i % 200 == 0:
+    if i % 50 == 0:
         mass_to_ev = 1.67e-27 / 1.6e-19
         energy = 0.5 * (protons.getvx()**2 + protons.getvy()**2 + protons.getvz()**2) * mass_to_ev
         limite_E = 3.4e6
@@ -267,6 +269,8 @@ for i in range(nsteps):
         plt.tight_layout()
         plt.savefig(lineaf2)
         plt.clf()
-
     wp.step()
+    XX, YY, ZZ, VXX, VYY, VZ = gauss_trunc(mu, sigma, NParticles,velocity,z0=-0.002)
+    protons.addparticles(x=XX, y=YY, z=ZZ, vx=VXX, vy=VYY, vz=VZ,js=0,lallindomain=True)
+    
 df = None
