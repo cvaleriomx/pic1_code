@@ -4,6 +4,8 @@ import sys
 import pickle
 import pandas as pd
 import sys
+from rfq_plots_library import *
+
 plot_or_not = True
 por = float(sys.argv[1:][0])
 print(por * 10)
@@ -14,11 +16,11 @@ wp.top.nesmult = 1  # <--- IMPORTANTE para inicializar 'emltes'
 from plane_cross1_beta3 import PlaneCrossSaverFiltered   # importar tu clase
 
 # Set up solenoid lattice
-run_length = 3.01
+run_length = 3.03
 drift_length = 0.2
 solenoid_length = 1
 solenoid_radius = 7.5e-2
-NParticles = 300
+NParticles = 1000
 var1 = params
 mag_solenoid = 0.0001
 0.1 * float(var1) / 10
@@ -28,31 +30,13 @@ wp.top.lpsplots = False
 
 
 
-def gauss_trunc(mu, sigma, NParticles,velocity,z0=0.0):
-    XX = np.random.normal(mu, sigma, NParticles)
-    YY = np.random.normal(mu, sigma, NParticles)
-    #ZZ = -0.015 + np.random.uniform(-beam_lenght/2, beam_lenght/2, NParticles)
-    #dzcal=run_length/wp.w3d.nz 
-
-    ZZ = np.random.uniform(z0, -0.001, NParticles)
-
-    #ZZ=np.zeros(NParticles)
-    VXX = np.zeros(NParticles)
-    VYY = np.zeros(NParticles)
-    sigmavz = 0.001
-    VX = np.random.normal(0, sigmavz, NParticles)
-    VZ = np.random.normal(velocity, sigmavz, NParticles)
-    return XX, YY, ZZ, VXX, VYY, VZ
-
-
-
 
 # Initial BEAM variables
 e_kin = 45.0 * wp.keV
 emit = 10.0e-7
-i_beam = 0.00001 * wp.mA
-r_x = 1.0 * wp.mm
-r_y = 1.0 * wp.mm
+i_beam = 35.0000 * wp.mA
+r_x = 5.0 * wp.mm
+r_y = 5.0 * wp.mm
 mu, sigma = 0, r_x
 
 moc2 = 938.272089e6  # MeV/c^2
@@ -71,7 +55,7 @@ ksol = (0.5 * mag_solenoid / Brho) ** 2
 rb0 = np.sqrt(K_perveance/ksol)
 print("rb0 ", rb0)
 print("gg ", K_perveance, ksol, Brho, mag_solenoid, velocity, betar, gammar)
-ptint("distance steps ", run_length / velocity, "s")
+print("distance steps ", run_length / velocity, "s")
 wp.top.ssnpid = wp.nextpid()
 
 # Define ion species no used for tracking but necessary for initialization
@@ -94,7 +78,16 @@ wp.top.npmax = NParticles
 wp.derivqty()
 
 
-XX, YY, ZZ, VXX, VYY, VZ = gauss_trunc(mu, sigma, NParticles,velocity,z0=-0.002)
+sigmaz = 0.01
+muz = -0.015
+time_small = 0.25e-9
+time_small=3.403343e-10
+Nzsteps =run_length/(velocity*time_small)+1
+print("Nzsteps ", Nzsteps,"mesh sizez ",velocity*time_small)
+
+
+
+#XX, YY, ZZ, VXX, VYY, VZ = gauss_trunc(mu, sigma, NParticles,velocity,z0=-0.001,mesh_sizez=velocity*time_small)
 
 #ZZ = -0.015 + np.random.uniform(-0.015, 0.0149, NParticles)
 #VXX = np.zeros(NParticles)
@@ -115,27 +108,37 @@ if Use_solenoid:
     base1 = "salida_sloneoid/"
     solenoid_zi = [drift_length + i * solenoid_length + i * drift_length for i in range(3)]
     solenoid_ze = [drift_length + (i + 1) * solenoid_length + i * drift_length for i in range(3)]
-    wp.addnewsolenoid(zi=solenoid_zi[0], zf=solenoid_ze[0], ri=solenoid_radius, maxbz=mag_solenoid)
+    #wp.addnewsolenoid(zi=solenoid_zi[0], zf=solenoid_ze[0], ri=solenoid_radius, maxbz=mag_solenoid)
 
-sigmaz = 0.01
-muz = -0.015
+
+#Nzsteps = 250
+beam_lenght = run_length/Nzsteps*1.0
+pulse_lenght=beam_lenght/protons.vbeam
+hhh=protons.ibeam*pulse_lenght/(wp.echarge*NParticles)
+
+
+print(wp.top.sp_fract)
+#wp.top.sp_fract = wp.array([0.0],'d') # species weight
+wp.top.pgroup.sw	=hhh*wp.top.sp_fract
+
 
 # --- Setup the FODO lattice
 max_radius = 1.0 * wp.cm
-time_small = 0.25e-9
-wp.top.dt = time_small
-ptint("distance steps ", run_length / velocity, "s")
+
+wp.top.dt = time_small*2
+print("distance steps ", run_length / velocity, "s")
 print("time step ", wp.top.dt, "s", "which is ", wp.top.dt * velocity * 1e3, "mm")
+mesh_sizez1 = velocity * wp.top.dt
 wp.w3d.nx = 44
 wp.w3d.ny = 44
 #wp.w3d.nz = 15200
-wp.w3d.nz = 3100
+wp.w3d.nz = int((run_length) / (velocity * wp.top.dt)) + 1
 wp.w3d.xmmin = -max_radius
 wp.w3d.xmmax = max_radius
 wp.w3d.ymmin = -max_radius
 wp.w3d.ymmax = max_radius
-wp.w3d.zmmin = -0.002
-wp.w3d.zmmax = run_length + 0.03
+wp.w3d.zmmin = -2*mesh_sizez1
+wp.w3d.zmmax = run_length
 wp.w3d.bound0 = wp.neumann
 wp.w3d.boundnz = wp.neumann
 wp.w3d.boundxy = wp.dirichlet
@@ -151,12 +154,6 @@ wp.package("w3d")
 wp.generate()
 
 print(len(protons.getx()), "particulas")
-wp.addparticles(x=XX, y=YY, z=ZZ, vx=VXX, vy=VYY, vz=VZ, js=0, lallindomain=True)
-
-#wp.addparticles(x=XX, y=YY, z=ZZ, vx=VXX, vy=VYY, vz=VZ, js=0, lallindomain=True)
-fig = plt.figure(figsize=(10, 6))
-plt.scatter(ZZ, YY, s=1, label='Initial Particle Distribution')
-plt.show()
 
 with open('campo_corregido.pkl', 'rb') as f:
     df = pickle.load(f)
@@ -176,9 +173,9 @@ ex_rfq = df['Ex'].values.reshape((nx_rfq, ny_rfq, nz_rfq), order='C')
 ey_rfq = df['Ey'].values.reshape((nx_rfq, ny_rfq, nz_rfq), order='C')
 ez_rfq = df['Ez'].values.reshape((nx_rfq, ny_rfq, nz_rfq), order='C')
 
-nt = 10000
+nt = 20000
 freq_rfq = 352e6
-T_rfq = 200 / freq_rfq
+T_rfq = 400 / freq_rfq
 time_array_rfq = np.linspace(0, T_rfq, nt)
 print("Tiempo de signal for RFQ", time_array_rfq[1], "s")
 phase_disp_rfq = 0
@@ -221,9 +218,9 @@ nsteps = int(np.ceil(nsteps))
 leng_part=[]
 
 # define los dos planos
-z_planes = [-0.0005, 3.0]
+z_planes = [0.00, 3.0]
 files    = ["cross_z0p001.csv", "cross_z0p300.csv"]
-limits=[8e-3, 10e-3]
+limits=[20e-3, 10e-3]
 monitors = []
 for z0, fname,tlim in zip(z_planes, files,limits):
     mon = PlaneCrossSaverFiltered(
@@ -239,40 +236,35 @@ for z0, fname,tlim in zip(z_planes, files,limits):
     )
     monitors.append(mon)
     wp.installafterstep(mon.step_monitor)   # registra cada uno
+def myinjection1():
+            #X, YY, ZZ, VXX, VYY, VZ = gauss_trunc(mu, sigma, NParticles,velocity,z0=-2*mesh_sizez1,z1=-mesh_sizez1)
+            XX, YY, ZZ, VXX, VYY, VZ = uniform_beam(mu, sigma, NParticles,velocity,0.25,z0=-2*mesh_sizez1,z1=-mesh_sizez1)
+            protons.addparticles(x=XX, y=YY, z=ZZ, vx=VXX, vy=VYY, vz=VZ,js=0,lallindomain=True)
+#wp.installuserinjection(myinjection1) 
 
+XX, YY, ZZ, VXX, VYY, VZ = uniform_beam(mu, sigma, NParticles,velocity,0.25,z0=-2*mesh_sizez1,z1=-mesh_sizez1)
+
+fig22= plt.figure()
+plt.scatter(XX,YY)
+plt.show()
+            #XX, YY, ZZ, VXX, VYY, VZ = gauss_trunc(mu, sigma, NParticles,velocity)
+protons.addparticles(x=XX, y=YY, z=ZZ, vx=VXX, vy=VYY, vz=VZ,js=0,lallindomain=True)
 for i in range(nsteps):
-    if i % 50 == 0:
-        mass_to_ev = 1.67e-27 / 1.6e-19
-        energy = 0.5 * (protons.getvx()**2 + protons.getvy()**2 + protons.getvz()**2) * mass_to_ev
-        limite_E = 3.4e6
-        mask = energy < limite_E
-
-        lineaf2 = base1 + "step_" + str(i) + ".png"
-        fig, axs = plt.subplots(3, 1, figsize=(10, 6))
-        zip = protons.getz()
-        print("Z posiciones: ", np.average(zip[mask]))
+    if i % 10==0:
+        curr1 = wp.top.curr
+        zplmesh = wp.top.zplmesh
+        curr1 = curr1.ravel()  # O también puedes usar y.reshape(-1)
+        zoffset = wp.top.zbeam#_extractvar('zbeam',varsuffix,'top',ff)
+        print("zoffset ", zoffset)
+        ppp = wp.getphi(iy=int(wp.w3d.ny/2),solver=wp.getregisteredsolver())
         print("advance simulation porcentance ", 100 * i / nsteps, " %")
-        axs[0].scatter(zip[mask], 1000 * protons.getx()[mask], label='x')
-        axs[0].scatter(zip[mask], 1000 * protons.gety()[mask], label='y')
-        axs[0].set_xlim(0, run_length)
-        axs[0].set_ylim(-5.0, 5.0)
-        axs[0].set_xlabel('z (m)')
-        axs[0].legend("upper right")
-        axs[0].set_ylabel('Transverse position (mm)')
-        npart1=len(protons.getx()[mask])
-        leng_part.append(npart1)
-        print(npart1, "particulas")
+        lineaf2 = base1 + "step_" + str(i) + ".png"
+        lineaf1 = base1 + "histo_step_" + str(i) + ".png"
 
-        print("Ekin max", np.max(energy[mask]), "LLLLaverage", np.average(energy[mask]))
-        axs[1].hist(energy[mask], bins=100, density=True, label='Ekin', range=(42e3, 3.2e6))
-        axs[1].set_xlabel('Ekin (eV)')
-        axs[2].scatter(zip[mask], energy[mask], label='Ekin')
-        axs[2].set_xlabel('z (m) free')
-        plt.tight_layout()
-        plt.savefig(lineaf2)
-        plt.clf()
+        plot_potential_and_current(protons,zplmesh, curr1,wp.w3d.xmmin, wp.w3d.xmmax,wp.w3d.zmmin, wp.w3d.zmmax,ppp,lineaf1)
+        plot_particles_3plots(protons,run_length,lineaf2) 
     wp.step()
-    XX, YY, ZZ, VXX, VYY, VZ = gauss_trunc(mu, sigma, NParticles,velocity,z0=-0.002)
+    XX, YY, ZZ, VXX, VYY, VZ = uniform_beam(mu, sigma, NParticles,velocity,0.25,z0=-2*mesh_sizez1,z1=-mesh_sizez1)
     protons.addparticles(x=XX, y=YY, z=ZZ, vx=VXX, vy=VYY, vz=VZ,js=0,lallindomain=True)
     
 df = None

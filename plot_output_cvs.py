@@ -18,10 +18,11 @@ def calc_emit_rms(x1,xp1):
     varx=0
     varpx=0
     varxpx=0
-    for i2 in range(0,len(X)):
-              	varx   = varx   + (X[i2]-MX) *(X[i2]-MX)/LS
-              	varpx  = varpx  + (PX2[i2]-MPX)*(PX2[i2]-MPX)/LS
-              	varxpx = varxpx + (X[i2]-MX)*(PX2[i2]-MPX)/LS
+    for i2 in range(0,len(X)-10000):
+                #print(X[i2],MX,i2)
+                varx   = varx   + (X[i2]-MX)*(X[i2]-MX)/LS
+                varpx  = varpx  + (PX2[i2]-MPX)*(PX2[i2]-MPX)/LS
+                varxpx = varxpx + (X[i2]-MX)*(PX2[i2]-MPX)/LS
     print(varx)
     e_rms = 1*np.sqrt(varx*varpx-varxpx*varxpx)
     print ("RMS Size X = %.4f mm Emittance =  %03s mm.mrad" % (np.sqrt(varx)*1e3,e_rms*1000000))
@@ -53,8 +54,13 @@ z0lenght=degrees_to_z(360, 352e6,2936039.794467285)*4
 #input("Presiona Enter para continuar...")
 base="salida_nosc_continuos1/"
 base="salida/"
+#base="salida_SC_0.0001mA/"
+
 # ========= CONFIGURA AQUÍ =========
 CSV_PATH = base + "cross_z0p001.csv"  # <-- tu archivo
+
+#CSV_PATH = base + "cross_z0p300.csv"   # plano lejano (p. ej. z=0.3)
+
 MASS_KG  = 1.67262192369e-27      # masa (protones por defecto)
 CHARGE_C = 1.602176634e-19        # carga elemental (si la necesitas para otras cosas)
 Z0_LABEL = None                   # si quieres mostrar z0 en el título, ej. "z0 = 0.1 m"
@@ -97,10 +103,11 @@ plt.grid(True, linestyle="--", alpha=0.4)
 plt.tight_layout()
 
 plt.figure(figsize=(6,4))
-plt.hist(df["t_cross"],bins=100)
+#plt.hist(df["t_cross"],bins=100)
+plt.hist(E_MeV, bins=500)
 
 # --- 3) t–E (energía cinética en MeV) ---
-phitime11= time_to_phase_deg(df["t_cross"], f_rf=352e6, tref=df["t_cross"].min(), phi0_deg=0.0, wrap=False, center180=False)
+phitime11= time_to_phase_deg(df["t_cross"], f_rf=352e6, tref=df["t_cross"].min(), phi0_deg=0.0, wrap=True, center180=False)
 plt.figure(figsize=(6,4))
 #plt.scatter(df["t_cross"], E_MeV, s=6)
 plt.scatter(phitime11, E_MeV, s=6)
@@ -148,13 +155,28 @@ df2 = load_clean(CSV2).rename(columns={
 print(df1["pid"])
 # Intersección por pid: solo partículas que cruzaron ambos planos
 m = df1.merge(df2, on="pid", how="inner")
+print(len(m), "particulas en comun")
+energy1=0.5 * (m["vx2"]**2 + m["vy2"]**2 + m["vz2"]**2) * MASS_KG / CHARGE_C
+#implemnet mask to filter energy less than 3.4 MeV
+limite_E = 3.4e6
+mask12 = energy1 < limite_E
+m = m[mask12]
+#mask of time
+tlimite=1.1e-7
+masktime = m["t1"] < tlimite
+m = m[masktime]
+energy1=0.5 * (m["vx1"]**2 + m["vy1"]**2 + m["vz1"]**2) * MASS_KG / CHARGE_C
+plt.figure(figsize=(6,4))
+plt.hist(m["t2"], bins=500)
+
+
 print(f"Total en {LABEL1}: {len(df1)}  |  Total en {LABEL2}: {len(df2)}  |  En ambos: {len(m)}")
 print(len(m), "particulas en comun")
 if len(m) == 0:
     raise SystemExit("No hay pids en común entre los dos planos. Revisa tus CSVs o los filtros usados.")
 
 # (Opcional) Ordenar por tiempo del primer cruce
-m = m.sort_values("t1")
+#m = m.sort_values("t1")
 
 #save m dataframe to csv
 #m.to_csv(base + "merged_planes.csv", index=False)
@@ -247,7 +269,7 @@ ax2.grid(True, linestyle="--", alpha=0.4)
 
 # C) Evolución en t vs energía (histograma 2D)
 ax3 = plt.subplot(1,3,3)
-phitime= time_to_phase_deg(m["t2"], f_rf=352e6, tref=m["t2"].min(), phi0_deg=0.0, wrap=False, center180=False)
+phitime= time_to_phase_deg(m["t2"], f_rf=352e6, tref=m["t2"].min(), phi0_deg=0.0, wrap=True, center180=False)
 
 #phitime= time_to_phase_deg(recorte, f_rf=352e6, tref=recorte.min(), phi0_deg=0.0, wrap=True, center180=False)
 #phitime= time_to_phase_deg(m["t1"], f_rf=352e6, tref=m["t1"].min(), phi0_deg=0.0, wrap=True, center180=False)
@@ -257,7 +279,7 @@ H, xedges, yedges = np.histogram2d(phitime, E_MeV2, bins=500)
 #range1=[[m["t1"].min(),m["t1"].max()],[0.92*E_MeV2.max(),E_MeV2.max()]]
 range1=[[-20,60],[0.93*E_MeV2.max(),E_MeV2.max()]]
 #range1=[[phitime.min(),1200],[0.92*E_MeV2.max(),E_MeV2.max()]]
-range1=[[-100,1800],[0.93*E_MeV2.max(),E_MeV2.max()]]
+#range1=[[-100,1800],[0.93*E_MeV2.max(),E_MeV2.max()]]
 H, xedges, yedges = np.histogram2d(phitime, E_MeV2, bins=800,range=range1)
 
 # Aplicar máscara: ocultar bins con valor = 0
@@ -327,8 +349,10 @@ plt.legend()
 
 transmission=len(m["t1"])/len(df["t_cross"])
 print("Transmisión total:", transmission,len(m["t2"]),len(df["t_cross"]))
-calc_emit_rms(m["x1"],m["vx1"]/m["vz1"])
-calc_emit_rms(m["x2"],m["vx2"]/m["vz2"])
+x3=m["x1"]
+xp3=m["vx1"]/m["vz1"]
+calc_emit_rms(x3,xp3)
+#calc_emit_rms(m["x2"],m["vx2"]/m["vz2"])
 
 import numpy as np
 import matplotlib.pyplot as plt

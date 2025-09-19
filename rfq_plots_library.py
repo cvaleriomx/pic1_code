@@ -55,25 +55,25 @@ def calc_emit_rms(x1,xp1):
     print ("RMS Size X = %.4f mm Emittance =  %03s mm.mrad" % (np.sqrt(varx)*1e3,e_rms*1000000))
     return (e_rms)
 
-def plot_potential_and_current(protons,zplmesh, curr1,xmmin,xmmax,zmmin,zmmax,ppp):
+def plot_potential_and_current(protons,zplmesh, curr1,xmmin,xmmax,zmmin,zmmax,ppp,lineaf):
         fig4, axs2 = plt.subplots(2, 1, figsize=(10, 6))
         #plg(curr,zoffset+zplmesh/zscale,color=color,linetype=linetype,
 
         #axs2[0].scatter(zoffset+zplmesh, curr1, label='Current Density' )
 
         #axs2[1].scatter(protons.getz(), protons.getx(), label='x')
-        limits = [[-0.03, 1], [-0.01, 0.01]]
+        limits = [[-0.03, 3.1], [-0.01, 0.01]]
 
-        Hx, xedges, yedges = np.histogram2d(protons.getz(), protons.getx(), bins=100)
+        Hx, xedges, yedges = np.histogram2d(protons.getz(), protons.getx(), bins=(3000, 20),range=limits)
         Hx = np.rot90(Hx)
         Hx = np.flipud(Hx)
         Hmaskedx = np.ma.masked_where(Hx == 0, Hx)
         # Sumar sobre y -> distribución solo en z
         counts_z = Hmaskedx.sum(axis=0)   # suma en eje y
         z_centers = 0.5 * (xedges[:-1] + xedges[1:])  # centros de bins en z
-        axs2[0].scatter(zplmesh, curr1, label='Current Density' )
-        axs2[0].scatter(z_centers, counts_z / np.max(counts_z) * np.max(np.abs(curr1)), label='Particle Density (scaled)', color='orange', s=10)
-        #axs2[0].scatter(z_centers, counts_z, label='Particle Density (scaled)', color='orange', s=10)
+        #axs2[0].scatter(zplmesh, curr1, label='Current Density' )
+        #axs2[0].scatter(z_centers, counts_z / np.max(counts_z) * np.max(np.abs(curr1)), label='Particle Density (scaled)', color='orange', s=10)
+        axs2[0].scatter(z_centers, counts_z, label='Particle Density (scaled)', color='orange', s=10)
 
                 #print(ppp)
         #ppp=ppp.T
@@ -105,10 +105,15 @@ def plot_potential_and_current(protons,zplmesh, curr1,xmmin,xmmax,zmmin,zmmax,pp
         # 5) Heatmap de partículas (bordes/edges)
         axs2[1].set_xlabel('z')
         axs2[1].set_ylabel('x')
-        plt.show()
+        
+        
+
+        plt.savefig(lineaf)
+
+        #plt.show()
 
 
-def plot_particles_3plots(protons,run_length,i,base1):
+def plot_particles_3plots(protons,run_length,lineaf):
       
       
       #wp.limits(wp.w3d.zmminglobal, wp.w3d.zmmaxglobal, 0., i_beam*2)
@@ -117,7 +122,7 @@ def plot_particles_3plots(protons,run_length,i,base1):
         limite_E = 3.4e6
         mask = energy < limite_E
 
-        lineaf2 = base1 + "step_" + str(i) + ".png"
+        #lineaf2 = base1 + "step_" + str(i) + ".png"
         fig, axs = plt.subplots(3, 1, figsize=(10, 6))
         zip = protons.getz()
         #print("Z posiciones: ", np.average(zip[mask]))
@@ -136,6 +141,52 @@ def plot_particles_3plots(protons,run_length,i,base1):
         axs[2].scatter(zip[mask], energy[mask], label='Ekin')
         axs[2].set_xlabel('z (m) free')
         plt.tight_layout()
-        plt.show()
-        #plt.savefig(lineaf2)
+        #plt.show()
+        plt.savefig(lineaf)
         plt.clf()
+
+def gauss_trunc(mu, sigma, NParticles,velocity,sigmaT=0.0001,z0=0.0,z1=0.001):
+    XX = np.random.normal(mu, sigma, NParticles)
+    YY = np.random.normal(mu, sigma, NParticles)
+    
+    
+    #ZZ = -0.015 + np.random.uniform(-beam_lenght/2, beam_lenght/2, NParticles)
+    #dzcal=run_length/wp.w3d.nz 
+
+    ZZ = np.random.uniform(z0, z1, NParticles)
+
+    #ZZ=np.zeros(NParticles)
+    #VXX = np.zeros(NParticles)
+    #VYY = np.zeros(NParticles)
+    sigmavz = 0.001
+    VXX = np.random.uniform(-sigmaT*velocity, sigmaT*velocity, NParticles)
+    VYY = np.random.uniform(-sigmaT*velocity, sigmaT*velocity, NParticles)
+    VZ=np.sqrt(velocity-VXX*VXX-VYY*VYY)
+    #VZ=np.random.normal(velocity, sigmavz, NParticles)
+    #VX = np.random.normal(0, sigmavz, NParticles)
+    #VZ = np.random.normal(velocity, sigmavz, NParticles)
+    return XX, YY, ZZ, VXX, VYY, VZ
+
+
+def  uniform_beam(mu, sigma, NParticles,velocity,sigmaVT=0.0001,z0=0.0,z1=0.001):
+    XX = np.random.uniform(-sigma, sigma, NParticles)
+    YY = np.random.uniform(-sigma, sigma, NParticles)
+    #XX = np.rand
+    
+    #ZZ = -0.015 + np.random.uniform(-beam_lenght/2, beam_lenght/2, NParticles)
+    #dzcal=run_length/wp.w3d.nz 
+
+    ZZ = np.random.uniform(z0, z1, NParticles)
+
+    #ZZ=np.zeros(NParticles)
+    #VXX = np.zeros(NParticles)
+    #VYY = np.zeros(NParticles)
+    sigmavz = 0.001
+    VXX = np.random.uniform(-sigmaVT*velocity, sigmaVT*velocity, NParticles)
+    VYY = np.random.uniform(-sigmaVT*velocity, sigmaVT*velocity, NParticles)
+    vxy2 = VXX**2 + VYY**2
+    VZ=np.sqrt(velocity**2-vxy2)
+    #VZ=np.random.normal(velocity, sigmavz, NParticles)
+    #VX = np.random.normal(0, sigmavz, NParticles)
+    #VZ = np.random.normal(velocity, sigmavz, NParticles)
+    return XX, YY, ZZ, VXX, VYY, VZ
