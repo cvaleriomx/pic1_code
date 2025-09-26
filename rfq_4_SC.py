@@ -35,8 +35,8 @@ wp.top.lpsplots = False
 e_kin = 45.0 * wp.keV
 emit = 10.0e-7
 i_beam = 35.0000 * wp.mA
-r_x = 5.0 * wp.mm
-r_y = 5.0 * wp.mm
+r_x = 4.0 * wp.mm
+r_y = 4.0 * wp.mm
 mu, sigma = 0, r_x
 
 moc2 = 938.272089e6  # MeV/c^2
@@ -82,6 +82,7 @@ sigmaz = 0.01
 muz = -0.015
 time_small = 0.25e-9
 time_small=3.403343e-10
+time_small=1.7e-10
 Nzsteps =run_length/(velocity*time_small)+1
 print("Nzsteps ", Nzsteps,"mesh sizez ",velocity*time_small)
 
@@ -151,6 +152,19 @@ wp.top.inject = 1
 
 
 wp.package("w3d")
+
+#solver = wp.MultiGrid3D()
+solver=wp.MRBlock3D()
+wp.registersolver(solver)
+xmin1 = -max_radius*0.5
+xmax1 = max_radius*0.5
+ymin1 = -max_radius*0.5
+ymax1 = max_radius*0.5
+zmin1 = wp.w3d.zmmin
+zmax1 = 1.0
+child1 = solver.addchild(mins=[xmin1,ymin1,zmin1],
+                        maxs=[xmax1,ymax1,zmax1],refinement=[1,1,2])
+
 wp.generate()
 
 print(len(protons.getx()), "particulas")
