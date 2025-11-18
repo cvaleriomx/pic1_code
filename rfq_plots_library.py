@@ -106,7 +106,7 @@ def plot_potential_and_current(protons,zplmesh, curr1,xmmin,xmmax,zmmin,zmmax,pp
         axs2[1].set_xlabel('z')
         axs2[1].set_ylabel('x')
         
-        
+        plt.show()
 
         plt.savefig(lineaf)
 
