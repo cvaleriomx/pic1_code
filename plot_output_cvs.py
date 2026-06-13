@@ -6,7 +6,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-def calc_emit_rms(x1,xp1):
+def calc_emit_rms(x2,xp2):
+    x1 = x2.to_numpy()
+    xp1 = xp2.to_numpy()
     MX=np.mean(x1)
     MPX=np.mean(xp1)
     X=x1
@@ -18,7 +20,7 @@ def calc_emit_rms(x1,xp1):
     varx=0
     varpx=0
     varxpx=0
-    for i2 in range(0,len(X)-10000):
+    for i2 in range(0,len(X)-10):
                 #print(X[i2],MX,i2)
                 varx   = varx   + (X[i2]-MX)*(X[i2]-MX)/LS
                 varpx  = varpx  + (PX2[i2]-MPX)*(PX2[i2]-MPX)/LS
@@ -45,6 +47,11 @@ def time_to_phase_deg(t, f_rf, tref=0.0, phi0_deg=0.0, wrap=True, center180=Fals
         if center180:
             phi = np.where(phi > 180.0, phi - 360.0, phi)
     return phi
+timeone=np.linspace(0,5e-7,5000)
+plt.figure()
+phitime11= time_to_phase_deg(timeone, f_rf=352e6, tref=0, phi0_deg=0.0, wrap=True, center180=False)
+
+plt.scatter(timeone,phitime11)
 
 degrees_to_time = lambda deg, f_rf: deg / (360.0 * f_rf)
 degrees_to_z = lambda deg, f_rf, v: degrees_to_time(deg, f_rf) * v
@@ -52,12 +59,16 @@ print(degrees_to_time(360, 352e6), "s en 1 ciclo a 352 MHz")
 print(degrees_to_z(360, 352e6,2936039.794467285), "m en 1 ciclo a 352 MHz y v=0.0735c")
 z0lenght=degrees_to_z(360, 352e6,2936039.794467285)*4
 #input("Presiona Enter para continuar...")
-base="salida_nosc_continuos1/"
+base="salida_cw_nosc/"
 base="salida/"
-#base="salida_SC_0.0001mA/"
+
+#base="salida_001ma2/"
+#base="salida_35ma/"
+#base="/home/cvalerio/work1/warp/rf_cavity/rfq/"
+file0= "cross_z0p300.csv"
 
 # ========= CONFIGURA AQUÍ =========
-CSV_PATH = base + "cross_z0p001.csv"  # <-- tu archivo
+CSV_PATH = base + file0  # <-- tu archivo
 
 #CSV_PATH = base + "cross_z0p300.csv"   # plano lejano (p. ej. z=0.3)
 
@@ -127,7 +138,7 @@ plt.show()
 
 
 # === CONFIGURA AQUÍ ===
-CSV1 = base + "cross_z0p001.csv"   # plano cercano (p. ej. z=0.001)
+CSV1 = base + file0   # plano cercano (p. ej. z=0.001)
 CSV2 = base + "cross_z0p300.csv"   # plano lejano (p. ej. z=0.3)
 #CSV1 = base + "initial_distribution.csv"   # plano cercano (p. ej. z=0.001)
 LABEL1 = "Plano 1"
@@ -151,23 +162,45 @@ df1 = load_clean(CSV1).rename(columns={
 df2 = load_clean(CSV2).rename(columns={
     "t_cross":"t2","x":"x2","y":"y2","z":"z2","vx":"vx2","vy":"vy2","vz":"vz2"
 })
+
+radiusclean1=np.sqrt( (df1["x1"]**2 + df1["y1"]**2 ) )
+maskr1= radiusclean1<0.014
+df1= df1[maskr1]
+tlimite=0.750e-7
+masktime = df1["t1"] < tlimite
+df1= df1[masktime]
+
+
+#print("particulas que cruzan el primer plano dentro del radio de 4mm", len(totravel), len(totravel)/len(df1)*100,"%")
 #df1["pid"] = df1["pid"].astype(int)
 print(df1["pid"])
+LENGHT_INPUTBEAM=len(df1["t1"])
+#LENGHT_INPUTBEAM=len(totravel["t1"])
 # Intersección por pid: solo partículas que cruzaron ambos planos
 m = df1.merge(df2, on="pid", how="inner")
-print(len(m), "particulas en comun")
+print(len(df1), "particulas en el primer plano")
+print(len(m), "particulas en comun", len(m)/LENGHT_INPUTBEAM)
+
+print("transmission: ",len(m)/LENGHT_INPUTBEAM*100,"%")
+print("LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL ")
 energy1=0.5 * (m["vx2"]**2 + m["vy2"]**2 + m["vz2"]**2) * MASS_KG / CHARGE_C
 #implemnet mask to filter energy less than 3.4 MeV
-limite_E = 3.4e6
-mask12 = energy1 < limite_E
+limite_E_top = energy1 < 3.4e6
+limite_E = energy1>1.1e6
+mask12 = limite_E & limite_E_top
 m = m[mask12]
 #mask of time
-tlimite=1.1e-7
+tlimite=5.9e-4
+tlimite=1.0e-7
 masktime = m["t1"] < tlimite
 m = m[masktime]
-energy1=0.5 * (m["vx1"]**2 + m["vy1"]**2 + m["vz1"]**2) * MASS_KG / CHARGE_C
+energy1=0.5 * (m["vx2"]**2 + m["vy2"]**2 + m["vz2"]**2) * MASS_KG / CHARGE_C
+#energy1=0.5 * (m["vx1"]**2 + m["vy1"]**2 + m["vz1"]**2) * MASS_KG / CHARGE_C
+
+
+
 plt.figure(figsize=(6,4))
-plt.hist(m["t2"], bins=500)
+plt.hist(energy1, bins=500)
 
 
 print(f"Total en {LABEL1}: {len(df1)}  |  Total en {LABEL2}: {len(df2)}  |  En ambos: {len(m)}")
@@ -182,21 +215,29 @@ if len(m) == 0:
 #m.to_csv(base + "merged_planes.csv", index=False)
 
 
+phitimetofile= time_to_phase_deg(m["t1"], f_rf=352e6, tref=0, phi0_deg=0.0, wrap=True, center180=True)
 
-
-
+energy_input=0.5 * (m["vx1"]**2 + m["vy1"]**2 + m["vz1"]**2) * MASS_KG 
 # Figuras: comparación x–vx
 plt.figure(figsize=(14,4.8))
-
+M = np.column_stack((m["x1"], m["y1"], m["vx1"]/m["vz1"], m["vx1"]/m["vz1"], phitimetofile,energy_input ))   # apila como 6 columnas
+np.savetxt("datos1_warp_35mA.csv", M, delimiter=",",  comments="", fmt="%.6g")
+    
 # A) x–vx en plano 1
 ax1 = plt.subplot(1,3,1)
 ax1.scatter(df["x"], df["vx"]/df["vz"], s=6, alpha=0.3, label=LABEL1)
-ax1.scatter(m["x1"], m["vx1"]/m["vz1"], s=6)
-ax1.set_xlabel("x1 [m]")
-ax1.set_ylabel("vx1 [m/s]")
-ax1.set_title(f"{LABEL1}: espacio de fases x–vx")
-ax1.grid(True, linestyle="--", alpha=0.4)
 
+ax1.scatter(m["x1"], m["vx1"]/m["vz1"], s=6)
+ax1.set_xlim(-0.004, 0.004)
+ax1.set_ylim(-0.3, 0.3)
+#ax1.scatter(m["x1"],m["vz1"], s=6)
+ax1.set_xlabel("x1[m]")
+ax1.set_ylabel("xp [rads]")
+ax1.set_title(f"{LABEL1}: phase space x–vx")
+ax1.grid(True, linestyle="--", alpha=0.4)
+print("para el primer plano es ")
+emitplano1=calc_emit_rms(m["x1"], m["vx1"]/m["vz1"])
+print(emitplano1)
 # B) x–vx en plano 2
 ax2 = plt.subplot(1,3,2)
 ax2.scatter(m["x2"], m["vx2"]/m["vz2"], s=6)
@@ -204,22 +245,31 @@ ax2.set_xlabel("x2 [m]")
 ax2.set_ylabel("vx2 [m/s]")
 ax2.set_title(f"{LABEL2}: espacio de fases x–vx")
 ax2.grid(True, linestyle="--", alpha=0.4)
+print("par ael segundo plano es ")
+emitplano2=calc_emit_rms(m["x2"], m["vx2"]/m["vz2"])
 
 
 v2 = m["vx1"]**2 + m["vy1"]**2 + m["vz1"]**2
-beta2 = np.clip(v2 / c**2, 0.0, 1.0 - 1e-15)
+beta2 =(v2 / c**2)
+beta21= np.sqrt(v2 / c**2)
+
 gamma = 1.0 / np.sqrt(1.0 - beta2)
 E_joules = (gamma - 1.0) * MASS_KG * c**2
 E_MeV1 = E_joules / (1.602176634e-13)  # 1 MeV = 1.602e-13 J
-
+betagamma1=beta21*gamma
+avgbetagamma1=np.mean(betagamma1)
 # --- energía relativista ---
 c = 299_792_458.0
 #v2 = df["vx"]**2 + df["vy"]**2 + df["vz"]**2
 v2 = m["vx2"]**2 + m["vy2"]**2 + m["vz2"]**2
 beta2 = np.clip(v2 / c**2, 0.0, 1.0 - 1e-15)
 gamma = 1.0 / np.sqrt(1.0 - beta2)
+betagamma2=np.sqrt(beta2)*gamma
+avgbetagamma2=np.mean(betagamma2)
 E_joules = (gamma - 1.0) * MASS_KG * c**2
 E_MeV2 = E_joules / (1.602176634e-13)  # 1 MeV = 1.602e-13 J
+print("emitnorm1= ",emitplano1*avgbetagamma1)
+print("emitnorm2= ",emitplano2*avgbetagamma2)
 
 # C) Evolución: flechas (del plano 1 al 2) en el espacio x–vx
 ax3 = plt.subplot(1,3,3)
@@ -227,6 +277,19 @@ ax3.scatter(df["t_cross"], E_MeV, s=6, alpha=0.3, label=LABEL1)
 ax3.scatter(m["t1"], E_MeV1, s=6, label=LABEL1)
 
 plt.tight_layout()
+
+plt.figure()
+phitimetra= time_to_phase_deg(m["t2"], f_rf=352e6, tref=0, phi0_deg=0.0, wrap=True, center180=True)
+phi0m=np.mean(phitimetra)
+
+plt.scatter(phitimetra-phi0m,E_MeV2)
+plt.xlabel("Phase ")
+plt.ylabel("E (MeV)")
+
+plt.show()
+
+
+
 
 plt.figure(figsize=(14,4.8))
 
@@ -270,23 +333,26 @@ ax2.grid(True, linestyle="--", alpha=0.4)
 # C) Evolución en t vs energía (histograma 2D)
 ax3 = plt.subplot(1,3,3)
 phitime= time_to_phase_deg(m["t2"], f_rf=352e6, tref=m["t2"].min(), phi0_deg=0.0, wrap=True, center180=False)
-
+phitime= time_to_phase_deg(m["t2"], f_rf=352e6, tref=0, phi0_deg=0.0, wrap=True, center180=False)
 #phitime= time_to_phase_deg(recorte, f_rf=352e6, tref=recorte.min(), phi0_deg=0.0, wrap=True, center180=False)
 #phitime= time_to_phase_deg(m["t1"], f_rf=352e6, tref=m["t1"].min(), phi0_deg=0.0, wrap=True, center180=False)
 
 #phitime= m["t2"] - m["t2"].min()
-H, xedges, yedges = np.histogram2d(phitime, E_MeV2, bins=500)
+#H, xedges, yedges = np.histogram2d(phitime, E_MeV2, bins=500)
 #range1=[[m["t1"].min(),m["t1"].max()],[0.92*E_MeV2.max(),E_MeV2.max()]]
-range1=[[-20,60],[0.93*E_MeV2.max(),E_MeV2.max()]]
+range1=[[0.0,180],[0.93*E_MeV2.max(),1.05*E_MeV2.max()]]
 #range1=[[phitime.min(),1200],[0.92*E_MeV2.max(),E_MeV2.max()]]
 #range1=[[-100,1800],[0.93*E_MeV2.max(),E_MeV2.max()]]
-H, xedges, yedges = np.histogram2d(phitime, E_MeV2, bins=800,range=range1)
+#H, xedges, yedges = np.histogram2d(phitime, E_MeV2, bins=800,range=range1)
+H, xedges, yedges = np.histogram2d(phitime, E_MeV2, bins=200)
 
 # Aplicar máscara: ocultar bins con valor = 0
 Hmasked = np.ma.masked_where(H == 0, H)
 # Graficar con pcolormesh
 X, Y = np.meshgrid(xedges, yedges)
 pcm = ax3.pcolormesh(X, Y, Hmasked.T, cmap="plasma")  # ¡Ojo el .T para alinear!
+print("phitime min y max",phitime.min(),phitime.max())
+print("phitime mean and std",np.mean(phitime),np.std(phitime))
 plt.colorbar(pcm, ax=ax3, label="Densidad")
 
 #h3 = ax3.hist2d(m["t1"], E_MeV1, bins=200, cmap="inferno")
@@ -302,15 +368,17 @@ plt.figure(figsize=(6,6))
 plt.hist(m["t1"], bins=500, alpha=0.5, label=LABEL2)
 
 plt.figure(figsize=(6,6))
-plt.scatter(df["x"], df["y"], s=6)
+plt.scatter(df1["x1"], df1["y1"], s=6)
 plt.scatter(m["x1"], m["y1"], s=6, label=LABEL1)
+plt.xlim(-0.004, 0.004)
+plt.ylim(-0.004, 0.004)
 plt.xlabel(f"x [{X_UNIT_LABEL}]")
 plt.ylabel(f"y [{X_UNIT_LABEL}]")
 title1 = "Impacto en el plano"
 if Z0_LABEL is not None:
     title1 += f" ({Z0_LABEL})"
 plt.title(title1)
-plt.axis("equal")
+#plt.axis("equal")
 plt.grid(True, linestyle="--", alpha=0.4)
 plt.tight_layout()
 
@@ -336,7 +404,7 @@ E_MeV2_filtrado = E_MeV2[mask]
 plt.figure(figsize=(6,4))
 plt.scatter(t2_filtrado, E_MeV2_filtrado, s=6)
 
-
+plt.show()
 plt.figure(figsize=(6,4))
 phitimecut= time_to_phase_deg(t1_filtrado, f_rf=352e6, tref=t1_filtrado.min(), phi0_deg=0.0, wrap=True, center180=False)
 phitime2= time_to_phase_deg(m["t1"], f_rf=352e6, tref=m["t1"].min(), phi0_deg=0.0, wrap=False, center180=True)
