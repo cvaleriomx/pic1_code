@@ -40,9 +40,9 @@ e_kin = 28.84*wp.keV
 e_kin = 30.0*wp.keV
 
 emit = 10.0e-7
-i_beam = 0.000000001000 * wp.mA
-r_x = 0.50 * wp.mm
-r_y = 0.50 * wp.mm
+i_beam = 10.00 * wp.mA
+r_x = 1.0 * wp.mm
+r_y = 1.0 * wp.mm
 mu, sigma = 0, r_x
 
 moc2 = 938.272089e6  # MeV/c^2
@@ -95,7 +95,7 @@ freq_rfq = 162.0e6
 
 T_rfq = 1 / (freq_rfq*150)
 time_small = T_rfq 
-
+time_small = run_length/(velocity)
 Nzsteps =run_length/(velocity*time_small)+1
 print("Nzsteps ", Nzsteps,"mesh sizez ",velocity*time_small)
 
@@ -116,19 +116,25 @@ pipe = wp.ZCylinderOut(radius=rfq_max_radius, zlower=0.0, zupper=run_length)
 vane_table_file = "../RM2/olivier_1/parmteqoutput.txt"
 vane_table_file = "table1.txt"
 
-vane_radius = 0.001
-vane_conductors = generar_vanes(
-    vane_table_file,
-    sim_start=0.0,
-    sim_end=run_length,
-    sim_radius=rfq_max_radius,
-    vane_radius=vane_radius,
-    pts_per_cell=10,
-    unit_scale=0.01,
-    voltage=100.0,
-)
-#conductors = pipe #+
-conductors =vane_conductors
+vane_radius = 0.003
+if False:
+    vane_conductors = generar_vanes(
+        vane_table_file,
+        sim_start=0.0,
+        sim_end=run_length,
+        sim_radius=rfq_max_radius,
+        vane_radius=vane_radius,
+        pts_per_cell=10,
+        unit_scale=0.01,
+        voltage=0.0,
+        #profile_model="rfq_helper",
+        profile_model="cosine_fudge"
+
+    )
+    conductors =vane_conductors
+else:
+        conductors = pipe
+
 wp.top.prwall = solenoid_radius
 Use_solenoid = False
 base1 = "salida/"
@@ -142,6 +148,8 @@ if Use_solenoid:
 
 #Nzsteps = 250
 beam_lenght = run_length/Nzsteps*1.0
+
+
 pulse_lenght=beam_lenght/protons.vbeam
 hhh=protons.ibeam*pulse_lenght/(wp.echarge*NParticles)
 
@@ -154,19 +162,18 @@ wp.top.pgroup.sw	=hhh*wp.top.sp_fract
 # --- Setup the FODO lattice
 max_radius = 1.0 * wp.cm
 
-wp.top.dt = time_small*1.0
+
 print("distance steps ", run_length / velocity, "s")
 print("time step ", wp.top.dt, "s", "which is ", wp.top.dt * velocity * 1e3, "mm")
-mesh_sizez1 = velocity * wp.top.dt
-wp.w3d.nx = 44
-wp.w3d.ny = 44
-wp.w3d.nz = 200#int(run_length/mesh_sizez1)
+wp.w3d.nx = 32
+wp.w3d.ny = 32
+wp.w3d.nz = 2*2100#int(run_length/mesh_sizez1)
 #wp.w3d.nz = Nzsteps 
 wp.w3d.xmmin = -max_radius
 wp.w3d.xmmax = max_radius
 wp.w3d.ymmin = -max_radius
 wp.w3d.ymmax = max_radius
-wp.w3d.zmmin = -2*mesh_sizez1
+wp.w3d.zmmin = -0.01
 wp.w3d.zmmax = run_length
 wp.w3d.bound0 = wp.neumann
 wp.w3d.boundnz = wp.neumann
@@ -177,6 +184,21 @@ wp.top.pboundxy = wp.absorb
 wp.top.fstype = 7
 wp.w3d.l4symtry = False
 wp.top.inject = 1
+nt = 2400
+
+time_small = (wp.w3d.zmmax - wp.w3d.zmmin) / (wp.w3d.nz * velocity)
+wp.top.dt = time_small * 1
+simulation_dt = time_small * 1
+
+
+mesh_sizez1 = run_length / wp.w3d.nz
+
+macro_weight = protons.ibeam * wp.top.dt / (wp.echarge * NParticles)
+wp.top.pgroup.sw[0] = macro_weight
+
+print("macro_weight =", macro_weight)
+print("I check =", macro_weight * wp.echarge * NParticles / wp.top.dt)
+#input("Press Enter to continue...")
 
 
 wp.package("w3d")
@@ -202,8 +224,6 @@ ex_rfq = df['Ex'].values.reshape((nx_rfq, ny_rfq, nz_rfq), order='C')
 ey_rfq = df['Ey'].values.reshape((nx_rfq, ny_rfq, nz_rfq), order='C')
 ez_rfq = df['Ez'].values.reshape((nx_rfq, ny_rfq, nz_rfq), order='C')
 
-nt = 2400
-simulation_dt = time_small * 10.0
 
 # La tabla temporal debe cubrir los nt pasos con el dt usado al avanzar.
 time_array_rfq = np.arange(nt + 1) * simulation_dt
@@ -218,23 +238,11 @@ ax.scatter(time_array_rfq, data_array_cos)
 
 ax.set_xlabel('Time (s)')
 ax.set_ylabel('Cosine Value')
-#plot ez along z for x=y=0
+plt.close(fig)
 ez_along_z = ez_rfq[nx_rfq//2, ny_rfq//2, :]
-plt.figure()
-plt.plot(np.linspace(df['z'].min(), df['z'].max(), nz_rfq), ez_along_z)
-plt.xlabel('z (m)')
-plt.ylabel('Ez (V/m)')
-plt.title('Ez along z-axis at x=y=0')
-plt.grid()
-
-
-#plot potential along z for x=y=0
-potential_along_z = ez_along_z * (df['z'].max() - df['z'].min()) / nz_rfq
-plt.figure()
-plt.plot(np.linspace(df['z'].min(), df['z'].max(), nz_rfq), potential_along_z)
-plt.xlabel('z (m)')
-plt.ylabel('Potential (V)')
-plt.show()
+field_loaded=np.linspace(df['z'].min(), df['z'].max(), nz_rfq)
+field_electicfield=np.array(ez_along_z)           
+plot_loaded_rfq_axis_diagnostics(field_loaded, field_electicfield, show=True)
 xs_rfq = df['x'].min()
 xe_rfq = df['x'].max()
 ys_rfq = df['y'].min()
@@ -261,250 +269,6 @@ wp.installconductors(conductors, dfill=wp.largepos)
 scraper = wp.ParticleScraper(conductors)
 wp.fieldsolve()
 #wp.solver.ldosolve = False
-wp.top.dt = simulation_dt
-
-
-def integrate_from_reference(values, spacing, reference_index, axis=0):
-    """Integra values desde reference_index a lo largo del eje indicado."""
-    values = np.moveaxis(np.asarray(values), axis, 0)
-    integral = np.zeros_like(values, dtype=float)
-
-    right_segments = 0.5 * (values[reference_index:-1] + values[reference_index + 1:]) * spacing
-    if right_segments.size:
-        integral[reference_index + 1:] = np.cumsum(right_segments, axis=0)
-
-    left_segments = 0.5 * (values[:reference_index] + values[1:reference_index + 1]) * spacing
-    if left_segments.size:
-        integral[:reference_index] = -np.flip(
-            np.cumsum(np.flip(left_segments, axis=0), axis=0),
-            axis=0,
-        )
-
-    return np.moveaxis(integral, 0, axis)
-
-
-def plot_rfq_potential_after_first_step_field_loaded():
-    """Reconstruye y guarda el potencial del campo RFQ aplicado."""
-    ix0 = nx_rfq // 2
-    iy0 = ny_rfq // 2
-
-    x_values = np.linspace(xs_rfq, xe_rfq, nx_rfq)
-    y_values = np.linspace(ys_rfq, ye_rfq, ny_rfq)
-    z_values = np.linspace(zs_rfq, ze_rfq, nz_rfq)
-
-    # Ex, Ey y Ez estan normalizados en V/m por voltio intervane.
-    voltage_now = v0 * np.cos(2.0 * np.pi * freq_rfq * wp.top.time + phase_disp_rfq)
-
-    # Potencial sobre el eje, tomando Phi(z=zs_rfq)=0 como referencia.
-    phi_axis = -integrate_from_reference(
-        ez_rfq[ix0, iy0, :],
-        dz_rfq,
-        reference_index=0,
-    )
-
-    # Planos longitudinales y=0 (ZX) y x=0 (ZY).
-    phi_zx = (
-        phi_axis[np.newaxis, :]
-        - integrate_from_reference(ex_rfq[:, iy0, :], dx_rfq, ix0, axis=0)
-    ) * voltage_now
-    phi_zy = (
-        phi_axis[np.newaxis, :]
-        - integrate_from_reference(ey_rfq[ix0, :, :], dy_rfq, iy0, axis=0)
-    ) * voltage_now
-
-    z_fractions = [0.10, 0.35, 0.65, 0.90]
-    z_indices = [
-        int(round(fraction * (nz_rfq - 1)))
-        for fraction in z_fractions
-    ]
-
-    figure, axes = plt.subplots(2, 3, figsize=(17, 9), constrained_layout=True)
-
-    for axis, iz in zip(axes.flat[:4], z_indices):
-        phi_x_centerline = (
-            phi_axis[iz]
-            - integrate_from_reference(ex_rfq[:, iy0, iz], dx_rfq, ix0)
-        )
-        phi_xy = (
-            phi_x_centerline[:, np.newaxis]
-            - integrate_from_reference(ey_rfq[:, :, iz], dy_rfq, iy0, axis=1)
-        ) * voltage_now
-
-        image = axis.pcolormesh(
-            x_values * 1e3,
-            y_values * 1e3,
-            phi_xy.T,
-            shading="auto",
-            cmap="RdBu_r",
-        )
-        contours = axis.contour(
-            x_values * 1e3,
-            y_values * 1e3,
-            phi_xy.T,
-            levels=15,
-            colors="black",
-            linewidths=0.45,
-            alpha=0.75,
-        )
-        axis.clabel(contours, inline=True, fontsize=6, fmt="%.2g")
-        axis.set_aspect("equal")
-        axis.set_xlabel("x [mm]")
-        axis.set_ylabel("y [mm]")
-        axis.set_title(f"Plano XY, z = {z_values[iz]:.3f} m")
-        figure.colorbar(image, ax=axis, label="Potencial [V]")
-
-    image_zx = axes[1, 1].pcolormesh(
-        z_values,
-        x_values * 1e3,
-        phi_zx,
-        shading="auto",
-        cmap="RdBu_r",
-    )
-    contours_zx = axes[1, 1].contour(
-        z_values,
-        x_values * 1e3,
-        phi_zx,
-        levels=20,
-        colors="black",
-        linewidths=0.4,
-        alpha=0.7,
-    )
-    axes[1, 1].clabel(contours_zx, inline=True, fontsize=6, fmt="%.2g")
-    axes[1, 1].set_xlabel("z [m]")
-    axes[1, 1].set_ylabel("x [mm]")
-    axes[1, 1].set_title("Plano longitudinal ZX, y = 0")
-    figure.colorbar(image_zx, ax=axes[1, 1], label="Potencial [V]")
-
-    image_zy = axes[1, 2].pcolormesh(
-        z_values,
-        y_values * 1e3,
-        phi_zy,
-        shading="auto",
-        cmap="RdBu_r",
-    )
-    contours_zy = axes[1, 2].contour(
-        z_values,
-        y_values * 1e3,
-        phi_zy,
-        levels=20,
-        colors="black",
-        linewidths=0.4,
-        alpha=0.7,
-    )
-    axes[1, 2].clabel(contours_zy, inline=True, fontsize=6, fmt="%.2g")
-    axes[1, 2].set_xlabel("z [m]")
-    axes[1, 2].set_ylabel("y [mm]")
-    axes[1, 2].set_title("Plano longitudinal ZY, x = 0")
-    figure.colorbar(image_zy, ax=axes[1, 2], label="Potencial [V]")
-
-    figure.suptitle(
-        f"Potencial RFQ despues del paso 1, t={wp.top.time:.4e} s, "
-        f"V={voltage_now:.4e} V"
-    )
-    output_path = base1 + "rfq_potential_after_step_1.png"
-    figure.savefig(output_path, dpi=180)
-    plt.close(figure)
-    print("RFQ potential diagnostic saved in", output_path)
-def plot_rfq_potential_after_first_step_field_warp_internal():
-    """Grafica el potencial calculado internamente por Warp."""
-    solver = wp.getregisteredsolver()
-    x_values = np.linspace(wp.w3d.xmmin, wp.w3d.xmmax, wp.w3d.nx + 1)
-    y_values = np.linspace(wp.w3d.ymmin, wp.w3d.ymmax, wp.w3d.ny + 1)
-    z_values = np.linspace(wp.w3d.zmmin, wp.w3d.zmmax, wp.w3d.nz + 1)
-
-    z_fractions = [0.10, 0.35, 0.65, 0.90]
-    z_indices = [
-        int(round(fraction * wp.w3d.nz))
-        for fraction in z_fractions
-    ]
-    ix0 = int(wp.w3d.nx // 2)
-    iy0 = int(wp.w3d.ny // 2)
-
-    figure, axes = plt.subplots(2, 3, figsize=(17, 9), constrained_layout=True)
-
-    # wp.getphi(iz=...) devuelve el plano XY para la posicion z seleccionada.
-    for axis, iz in zip(axes.flat[:4], z_indices):
-        phi_xy = np.asarray(wp.getphi(iz=iz, solver=solver))
-        image = axis.pcolormesh(
-            x_values * 1e3,
-            y_values * 1e3,
-            phi_xy.T,
-            shading="auto",
-            cmap="RdBu_r",
-        )
-        contours = axis.contour(
-            x_values * 1e3,
-            y_values * 1e3,
-            phi_xy.T,
-            levels=15,
-            colors="black",
-            linewidths=0.45,
-            alpha=0.75,
-        )
-        axis.clabel(contours, inline=True, fontsize=6, fmt="%.2g")
-        axis.set_aspect("equal")
-        axis.set_xlabel("x [mm]")
-        axis.set_ylabel("y [mm]")
-        axis.set_title(f"Plano XY, z = {z_values[iz]:.3f} m")
-        figure.colorbar(image, ax=axis, label="Potencial [V]")
-
-    # wp.getphi(iy=...) devuelve el plano longitudinal XZ.
-    phi_xz = np.asarray(wp.getphi(iy=iy0, solver=solver))
-    image_xz = axes[1, 1].pcolormesh(
-        z_values,
-        x_values * 1e3,
-        phi_xz,
-        shading="auto",
-        cmap="RdBu_r",
-    )
-    contours_xz = axes[1, 1].contour(
-        z_values,
-        x_values * 1e3,
-        phi_xz,
-        levels=20,
-        colors="black",
-        linewidths=0.4,
-        alpha=0.7,
-    )
-    axes[1, 1].clabel(contours_xz, inline=True, fontsize=6, fmt="%.2g")
-    axes[1, 1].set_xlabel("z [m]")
-    axes[1, 1].set_ylabel("x [mm]")
-    axes[1, 1].set_title("Plano longitudinal XZ, y = 0")
-    figure.colorbar(image_xz, ax=axes[1, 1], label="Potencial [V]")
-
-    # wp.getphi(ix=...) devuelve el plano longitudinal YZ.
-    phi_yz = np.asarray(wp.getphi(ix=ix0, solver=solver))
-    image_yz = axes[1, 2].pcolormesh(
-        z_values,
-        y_values * 1e3,
-        phi_yz,
-        shading="auto",
-        cmap="RdBu_r",
-    )
-    contours_yz = axes[1, 2].contour(
-        z_values,
-        y_values * 1e3,
-        phi_yz,
-        levels=20,
-        colors="black",
-        linewidths=0.4,
-        alpha=0.7,
-    )
-    axes[1, 2].clabel(contours_yz, inline=True, fontsize=6, fmt="%.2g")
-    axes[1, 2].set_xlabel("z [m]")
-    axes[1, 2].set_ylabel("y [mm]")
-    axes[1, 2].set_title("Plano longitudinal YZ, x = 0")
-    figure.colorbar(image_yz, ax=axes[1, 2], label="Potencial [V]")
-
-    figure.suptitle(
-        f"Potencial interno de Warp despues del paso 1, "
-        f"t={wp.top.time:.4e} s"
-    )
-    output_path = base1 + "rfq_potential_warp_internal_after_step_1.png"
-    figure.savefig(output_path, dpi=180)
-    plt.close(figure)
-    print("Warp internal potential diagnostic saved in", output_path)
-
 
 nsteps =  10*(run_length / velocity )/ wp.top.dt
 print(nsteps)
@@ -529,8 +293,8 @@ for z0, fname,tlim in zip(z_planes, files,limits):
         include_dir=True,
         debug=False           # pon False para producción
     )
-    #monitors.append(mon)
-    #wp.installafterstep(mon.step_monitor)   # registra cada uno
+    monitors.append(mon)
+    wp.installafterstep(mon.step_monitor)   # registra cada uno
 def myinjection1():
             #coordinate generation for the beam injection using time step and velocity to determine the z position of the injected particles for z
             #where z is between the previus step and the current step avance of the particles i z
@@ -539,19 +303,25 @@ def myinjection1():
             #print("z_injection ", z_injection)
 
             #X, YY, ZZ, VXX, VYY, VZ = gauss_trunc(mu, sigma, NParticles,velocity,z0=-2*mesh_sizez1,z1=-mesh_sizez1)
-            XX, YY, ZZ, VXX, VYY, VZ = uniform_beam(mu, sigma, NParticles,velocity,0.00025,z0=-2*mesh_sizez1,z1=-mesh_sizez1)
+            XX, YY, ZZ, VXX, VYY, VZ = uniform_beam(mu, sigma, NParticles,velocity,0.00025,z0=wp.w3d.zmmin,z1=wp.w3d.zmmin+mesh_sizez1)
             protons.addparticles(x=XX, y=YY, z=ZZ, vx=VXX, vy=VYY, vz=VZ,js=0,lallindomain=True)
 #wp.installuserinjection(myinjection1) 
 
-XX, YY, ZZ, VXX, VYY, VZ = uniform_beam(mu, sigma, NParticles,velocity,0.25,z0=-2*mesh_sizez1,z1=-mesh_sizez1)
+XX, YY, ZZ, VXX, VYY, VZ = uniform_beam(mu, sigma, NParticles,velocity,0.25,z0=wp.w3d.zmmin,z1=wp.w3d.zmmin+mesh_sizez1)
+# check how many degrees of rf is equivalent to the time step
+
+time_step_degrees = time_to_phase_deg(wp.top.dt, freq_rfq)
+print("Time step in degrees of RF: ", time_step_degrees)
 
 fig22= plt.figure()
 plt.scatter(XX,YY)
 plt.show()
+plt.close(fig22)
             #XX, YY, ZZ, VXX, VYY, VZ = gauss_trunc(mu, sigma, NParticles,velocity)
 protons.addparticles(x=XX, y=YY, z=ZZ, vx=VXX, vy=VYY, vz=VZ,js=0,lallindomain=True)
 #for i in range(nsteps):
-for i in range(nt):
+
+for i in range(4100):
     #time44=protons.getdt()
     #time44 = wp.top.time-wp.getpid(id=wp.top.tbirthpid-1, js=0)
     time44 = protons.getx()*0.0    +   (wp.top.time)
@@ -581,15 +351,47 @@ for i in range(nt):
         lineaf2 = base1 + "step_" + str(i) + ".png"
         lineaf1 = base1 + "histo_step_" + str(i) + ".png"
 
-        plot_potential_and_current(protons,zplmesh, zplmesh,wp.w3d.xmmin, wp.w3d.xmmax,wp.w3d.zmmin, wp.w3d.zmmax,ppp,lineaf1)
+        plot_potential_and_current(protons,zplmesh, curr1,wp.w3d.xmmin, wp.w3d.xmmax,wp.w3d.zmmin, wp.w3d.zmmax,ppp,lineaf1)
         plot_particles_3plots(protons,run_length,lineaf2) 
     wp.step()
     if i == 0:
-        plot_rfq_potential_after_first_step_field_loaded()
-        plot_rfq_potential_after_first_step_field_warp_internal()
+        x_rfq_values = np.linspace(xs_rfq, xe_rfq, nx_rfq)
+        y_rfq_values = np.linspace(ys_rfq, ye_rfq, ny_rfq)
+        z_rfq_values = np.linspace(zs_rfq, ze_rfq, nz_rfq)
+        rfq_z_targets = common_rfq_transverse_z_targets(
+            zs_rfq,
+            ze_rfq,
+            wp.w3d.zmmin,
+            wp.w3d.zmmax,
+        )
+        voltage_now = v0 * np.cos(2.0 * np.pi * freq_rfq * wp.top.time + phase_disp_rfq)
+
+        plot_rfq_potential_after_first_step_field_loaded(
+            ex_rfq=ex_rfq,
+            ey_rfq=ey_rfq,
+            ez_rfq=ez_rfq,
+            x_values=x_rfq_values,
+            y_values=y_rfq_values,
+            z_values=z_rfq_values,
+            dx_rfq=dx_rfq,
+            dy_rfq=dy_rfq,
+            dz_rfq=dz_rfq,
+            voltage_now=voltage_now,
+            time_now=wp.top.time,
+            z_targets=rfq_z_targets,
+            output_path=base1 + "rfq_potential_after_step_1.png",
+        )
+        plot_rfq_potential_after_first_step_field_warp_internal(
+            wp=wp,
+            z_targets=rfq_z_targets,
+            output_path=base1 + "rfq_potential_warp_internal_after_step_1.png",
+            external_z_values=field_loaded,
+            external_ez_axis=field_electicfield,
+        )
 
     if i< 9000:
-        XX, YY, ZZ, VXX, VYY, VZ = uniform_beam(mu, sigma, NParticles,velocity,0.25,z0=-2*mesh_sizez1,z1=-mesh_sizez1)
+        XX, YY, ZZ, VXX, VYY, VZ = uniform_beam(mu, sigma, NParticles,velocity,0.25,z0=wp.w3d.zmmin,z1=wp.w3d.zmmin+mesh_sizez1)
         protons.addparticles(x=XX, y=YY, z=ZZ, vx=VXX, vy=VYY, vz=VZ,js=0,lallindomain=True)
+
         
 df = None
