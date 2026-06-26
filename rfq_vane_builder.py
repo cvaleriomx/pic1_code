@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.interpolate import PchipInterpolator
+from scipy.optimize import root
 
 
 # ============================================================
@@ -114,9 +115,9 @@ def build_vane_profiles(df: pd.DataFrame, pts_per_cell: int = 80, unit_scale: fl
         # Interpolación suave de a(z), m(z) usando la coordenada física.
         a = ia(z / unit_scale) * unit_scale
         m = im(z / unit_scale)
-
-        r_x = a * ((m + 1.0) / 2.0 - (m - 1.0) / 2.0 * np.cos(2.0 * np.pi * s / L))
-        r_y = a * ((m + 1.0) / 2.0 - (m - 1.0) / 2.0 * np.cos(2.0 * np.pi * s / L + np.pi))
+        mpr=1
+        r_x = a * ((m + 1.0) / 2.0 - (m - 1.0) / 2.0 * np.cos(mpr * np.pi * s / L))
+        r_y = a * ((m + 1.0) / 2.0 - (m - 1.0) / 2.0 * np.cos(mpr * np.pi * s / L + np.pi))
 
         z_all.append(z)
         x_plus_all.append(+r_x)
@@ -130,6 +131,310 @@ def build_vane_profiles(df: pd.DataFrame, pts_per_cell: int = 80, unit_scale: fl
         x_minus=np.concatenate(x_minus_all),
         y_plus=np.concatenate(y_plus_all),
         y_minus=np.concatenate(y_minus_all),
+    )
+
+
+def build_vane_profiles_rfq_helper(
+    df: pd.DataFrame,
+    pts_per_cell: int = 80,
+    unit_scale: float = 0.01,
+) -> VaneProfiles:
+    """
+    Construye perfiles con la convención de dos términos de py_rfq_helper.
+
+    Cada fila representa media oscilación, con k = pi/L. La paridad de Cell
+    alterna qué vane va de a a m*a y cuál va de m*a a a. La fila Cell=0 se
+    usa solo como condición inicial, igual que en los archivos PARMTEQ.
+    """
+    if pts_per_cell <= 0:
+        raise ValueError("pts_per_cell debe ser mayor que cero.")
+
+    dfv = get_L_m(df).sort_values("Z").reset_index(drop=True)
+    cell_numbers = (
+        dfv["Cell"].astype(str).str.extract(r"(\d+)", expand=False)
+    )
+    if cell_numbers.isna().any():
+        raise ValueError("No se pudo extraer el número de todas las celdas.")
+
+    dfv["cell_number"] = cell_numbers.astype(int)
+
+    # PARMTEQ usa Cell=0 para dar la apertura inicial, no como celda física.
+    reference_row = None
+    if int(dfv.iloc[0]["cell_number"]) == 0:
+        reference_row = dfv.iloc[0]
+        cells = dfv.iloc[1:].reset_index(drop=True)
+    else:
+        cells = dfv
+
+    if cells.empty:
+        raise ValueError("No hay celdas físicas para construir las vanes.")
+
+    a_values = cells["a"].to_numpy(dtype=float) * unit_scale
+    m_values = cells["m"].to_numpy(dtype=float)
+    lengths = cells["L"].to_numpy(dtype=float) * unit_scale
+    numbers = cells["cell_number"].to_numpy(dtype=int)
+
+    if np.any(a_values <= 0.0) or np.any(m_values <= 0.0) or np.any(lengths <= 0.0):
+        raise ValueError("Las aperturas, modulaciones y longitudes deben ser positivas.")
+
+    if reference_row is None:
+        previous_a = a_values[0]
+        previous_m = m_values[0]
+    else:
+        previous_a = float(reference_row["a"]) * unit_scale
+        previous_m = float(reference_row["m"])
+
+    z_all = []
+    x_all = []
+    y_all = []
+    z_cursor = 0.0
+
+    def solve_radius(equation, initial_radius, cell_number, local_z, vane_name):
+        solution = root(
+            lambda radius: equation(float(radius[0])),
+            np.array([initial_radius], dtype=float),
+        )
+        radius = float(solution.x[0])
+        if not solution.success or not np.isfinite(radius) or radius <= 0.0:
+            raise RuntimeError(
+                f"No convergió el perfil {vane_name} en Cell={cell_number}, "
+                f"z_local={local_z:.6e} m."
+            )
+        return radius
+
+    for index, (a, m, length, cell_number) in enumerate(
+        zip(a_values, m_values, lengths, numbers)
+    ):
+        if index == 0:
+            prev_a = previous_a
+            prev_m = previous_m
+        else:
+            prev_a = a_values[index - 1]
+            prev_m = m_values[index - 1]
+
+        if index + 1 < len(cells):
+            next_a = a_values[index + 1]
+            next_m = m_values[index + 1]
+        else:
+            next_a = a
+            next_m = m
+
+        a_fudge_begin = 0.5 * (1.0 + prev_a / a)
+        ma_fudge_begin = 0.5 * (1.0 + prev_a * prev_m / (m * a))
+        a_fudge_end = 0.5 * (1.0 + next_a / a)
+        ma_fudge_end = 0.5 * (1.0 + next_a * next_m / (m * a))
+
+        include_endpoint = index == len(cells) - 1
+        sample_count = pts_per_cell + int(include_endpoint)
+        local_z_values = np.linspace(
+            0.0,
+            length,
+            sample_count,
+            endpoint=include_endpoint,
+        )
+
+        k = np.pi / length
+        sign = (-1.0) ** (cell_number + 1)
+        x_cell = []
+        y_cell = []
+
+        for local_z in local_z_values:
+            fraction = local_z / length
+            a_fudge = (1.0 - fraction) * a_fudge_begin + fraction * a_fudge_end
+            ma_fudge = (1.0 - fraction) * ma_fudge_begin + fraction * ma_fudge_end
+
+            aperture = a * a_fudge
+            modulation = m * ma_fudge / a_fudge
+            i0_ka = np.i0(k * aperture)
+            i0_kma = np.i0(k * modulation * aperture)
+            denominator = modulation**2 * i0_ka + i0_kma
+            a10 = (modulation**2 - 1.0) / denominator
+            r0 = aperture / np.sqrt(
+                1.0
+                - (modulation**2 * i0_ka - i0_ka) / denominator
+            )
+            cos_kz = np.cos(k * local_z)
+
+            def vane_x(radius):
+                return (
+                    sign * (radius / r0) ** 2
+                    + a10 * np.i0(k * radius) * cos_kz
+                    - sign
+                )
+
+            def vane_y(radius):
+                return (
+                    -sign * (radius / r0) ** 2
+                    + a10 * np.i0(k * radius) * cos_kz
+                    + sign
+                )
+
+            x_cell.append(
+                solve_radius(vane_x, aperture, cell_number, local_z, "x")
+            )
+            y_cell.append(
+                solve_radius(vane_y, aperture, cell_number, local_z, "y")
+            )
+
+        z_all.append(z_cursor + local_z_values)
+        x_all.append(np.asarray(x_cell))
+        y_all.append(np.asarray(y_cell))
+        z_cursor += length
+
+    z = np.concatenate(z_all)
+    x_plus = np.concatenate(x_all)
+    y_plus = np.concatenate(y_all)
+
+    return VaneProfiles(
+        z=z,
+        x_plus=x_plus,
+        x_minus=-x_plus,
+        y_plus=y_plus,
+        y_minus=-y_plus,
+    )
+
+
+def cosine_vane_profile_with_fudge(parameters, z_linear):
+    """Build a direct cosine vane profile using smoothed a and m*a per cell."""
+    vane_x = np.full_like(z_linear, np.nan, dtype=float)
+    vane_y = np.full_like(z_linear, np.nan, dtype=float)
+
+    for cell_index, cell in enumerate(parameters):
+        cell_length = cell["cell length"]
+        if cell_length <= 0.0:
+            continue
+
+        cell_start = cell["cumulative length"] - cell_length
+        cell_end = cell["cumulative length"]
+        cell_mask = (cell_start <= z_linear) & (z_linear <= cell_end)
+        if not np.any(cell_mask):
+            continue
+
+        a = cell["aperture"]
+        m = cell["modulation"]
+
+        if cell_index > 0:
+            prev = parameters[cell_index - 1]
+            prev_a = prev["aperture"]
+            prev_ma = prev_a * prev["modulation"]
+            a_fudge_begin = 0.5 * (1.0 + prev_a / a)
+            ma_fudge_begin = 0.5 * (1.0 + prev_ma / (m * a))
+        else:
+            a_fudge_begin = ma_fudge_begin = 1.0
+
+        if cell_index + 1 < len(parameters):
+            next_cell = parameters[cell_index + 1]
+            next_a = next_cell["aperture"]
+            next_ma = next_a * next_cell["modulation"]
+            a_fudge_end = 0.5 * (1.0 + next_a / a)
+            ma_fudge_end = 0.5 * (1.0 + next_ma / (m * a))
+        else:
+            a_fudge_end = ma_fudge_end = 1.0
+
+        u = (z_linear[cell_mask] - cell_start) / cell_length
+        smooth_u = 3.0 * u**2 - 2.0 * u**3
+
+        a_fudge = (1.0 - smooth_u) * a_fudge_begin + smooth_u * a_fudge_end
+        ma_fudge = (1.0 - smooth_u) * ma_fudge_begin + smooth_u * ma_fudge_end
+
+        a_profile = a * a_fudge
+        ma_profile = m * a * ma_fudge
+        delta = ma_profile - a_profile
+        c = np.cos(np.pi * u)
+        sign = (-1.0) ** (cell["cell no"] + 1)
+
+        if sign > 0.0:
+            vane_x[cell_mask] = a_profile + 0.5 * delta * (1.0 - c)
+            vane_y[cell_mask] = a_profile + 0.5 * delta * (1.0 + c)
+        else:
+            vane_x[cell_mask] = a_profile + 0.5 * delta * (1.0 + c)
+            vane_y[cell_mask] = a_profile + 0.5 * delta * (1.0 - c)
+
+    return vane_x, vane_y
+
+
+def build_vane_profiles_cosine_fudge(
+    df: pd.DataFrame,
+    pts_per_cell: int = 80,
+    unit_scale: float = 0.01,
+) -> VaneProfiles:
+    """
+    Construye perfiles con coseno directo y fudge suave entre celdas.
+
+    La fila Cell=0, si existe, se toma como referencia de PARMTEQ y no como
+    celda física, igual que en build_vane_profiles_rfq_helper.
+    """
+    if pts_per_cell <= 0:
+        raise ValueError("pts_per_cell debe ser mayor que cero.")
+
+    dfv = get_L_m(df).sort_values("Z").reset_index(drop=True)
+    cell_numbers = dfv["Cell"].astype(str).str.extract(r"(\d+)", expand=False)
+    if cell_numbers.isna().any():
+        raise ValueError("No se pudo extraer el número de todas las celdas.")
+
+    dfv["cell_number"] = cell_numbers.astype(int)
+    if int(dfv.iloc[0]["cell_number"]) == 0:
+        cells = dfv.iloc[1:].reset_index(drop=True)
+    else:
+        cells = dfv
+
+    if cells.empty:
+        raise ValueError("No hay celdas físicas para construir las vanes.")
+
+    a_values = cells["a"].to_numpy(dtype=float) * unit_scale
+    m_values = cells["m"].to_numpy(dtype=float)
+    lengths = cells["L"].to_numpy(dtype=float) * unit_scale
+    numbers = cells["cell_number"].to_numpy(dtype=int)
+
+    if np.any(a_values <= 0.0) or np.any(m_values <= 0.0) or np.any(lengths <= 0.0):
+        raise ValueError("Las aperturas, modulaciones y longitudes deben ser positivas.")
+
+    cumulative_lengths = np.cumsum(lengths)
+    parameters = [
+        {
+            "cell no": int(cell_number),
+            "cell length": float(length),
+            "cumulative length": float(cumulative_length),
+            "aperture": float(aperture),
+            "modulation": float(modulation),
+        }
+        for cell_number, length, cumulative_length, aperture, modulation in zip(
+            numbers,
+            lengths,
+            cumulative_lengths,
+            a_values,
+            m_values,
+        )
+    ]
+
+    z_segments = []
+    cell_start = 0.0
+    for index, length in enumerate(lengths):
+        include_endpoint = index == len(lengths) - 1
+        sample_count = pts_per_cell + int(include_endpoint)
+        cell_end = cell_start + length
+        z_segments.append(
+            np.linspace(
+                cell_start,
+                cell_end,
+                sample_count,
+                endpoint=include_endpoint,
+            )
+        )
+        cell_start = cell_end
+
+    z = np.concatenate(z_segments)
+    x_plus, y_plus = cosine_vane_profile_with_fudge(parameters, z)
+
+    if np.isnan(x_plus).any() or np.isnan(y_plus).any():
+        raise RuntimeError("El perfil cosine_fudge dejó puntos sin calcular.")
+
+    return VaneProfiles(
+        z=z,
+        x_plus=x_plus,
+        x_minus=-x_plus,
+        y_plus=y_plus,
+        y_minus=-y_plus,
     )
 
 
@@ -259,10 +564,33 @@ def generar_vanes(
     pts_per_cell: int = 80,
     unit_scale: float = 0.01,
     voltage: float = 0.0,
+    profile_model: str = "legacy",
 ):
     """Entrada única para Warp: lee el archivo y devuelve los conductores."""
     df = read_parmteq_whitespace(archivo_datos)
-    profiles = build_vane_profiles(df, pts_per_cell=pts_per_cell, unit_scale=unit_scale)
+    if profile_model == "legacy":
+        profiles = build_vane_profiles(
+            df,
+            pts_per_cell=pts_per_cell,
+            unit_scale=unit_scale,
+        )
+    elif profile_model == "rfq_helper":
+        profiles = build_vane_profiles_rfq_helper(
+            df,
+            pts_per_cell=pts_per_cell,
+            unit_scale=unit_scale,
+        )
+    elif profile_model == "cosine_fudge":
+        profiles = build_vane_profiles_cosine_fudge(
+            df,
+            pts_per_cell=pts_per_cell,
+            unit_scale=unit_scale,
+        )
+    else:
+        raise ValueError(
+            "profile_model debe ser 'legacy', 'rfq_helper' o 'cosine_fudge'."
+        )
+
     plot_vane_profiles(profiles, output_path="vane_profiles.png")
     return build_vane_conductors_from_profiles(
         profiles=profiles,
